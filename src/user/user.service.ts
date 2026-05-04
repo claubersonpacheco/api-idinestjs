@@ -6,6 +6,8 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
 import { Repository } from 'typeorm';
+import { MoodleService } from '../moodle/moodle.service';
+import { Role } from '../role/role.entity';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { User } from './user.entity';
@@ -18,6 +20,9 @@ export class UserService {
   constructor(
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
+    @InjectRepository(Role)
+    private readonly roleRepository: Repository<Role>,
+    private readonly moodleService: MoodleService,
   ) {}
 
   private sanitizeUser(user: User): UserResponse {
@@ -48,35 +53,83 @@ export class UserService {
   }
 
   async create(createUserDto: CreateUserDto): Promise<UserResponse> {
+    const normalizedEmail = createUserDto.email.trim().toLowerCase();
+    const normalizedUsername = createUserDto.username.trim();
+    const { roleId, ...userPayload } = createUserDto;
+
     const existingUser = await this.userRepository.findOneBy({
-      email: createUserDto.email,
+      email: normalizedEmail,
     });
 
     if (existingUser) {
       throw new ConflictException('A user with this email already exists.');
     }
 
-    const hashedPassword = await bcrypt.hash(createUserDto.password, 10);
-    const user = this.userRepository.create({
-      ...createUserDto,
-      password: hashedPassword,
+    const existingUsername = await this.userRepository.findOneBy({
+      username: normalizedUsername,
     });
 
-    const createdUser = await this.userRepository.save(user);
+    if (existingUsername) {
+      throw new ConflictException('A user with this username already exists.');
+    }
+
+    const role = roleId ? await this.roleRepository.findOneBy({ id: roleId }) : null;
+
+    if (roleId && !role) {
+      throw new NotFoundException(`Role with id ${roleId} not found.`);
+    }
+
+    const moodleUser = await this.moodleService.createUser({
+      username: normalizedUsername,
+      password: createUserDto.password,
+      firstname: createUserDto.name.trim(),
+      lastname: createUserDto.lastname?.trim() || createUserDto.name.trim(),
+      email: normalizedEmail,
+      suspended: createUserDto.suspended === '1',
+    });
+
+    let createdUser: User;
+
+    try {
+      const hashedPassword = await bcrypt.hash(createUserDto.password, 10);
+      const user = this.userRepository.create({
+        ...userPayload,
+        email: normalizedEmail,
+        username: normalizedUsername,
+        moodleUserId: moodleUser.id,
+        password: hashedPassword,
+        role,
+      });
+
+      createdUser = await this.userRepository.save(user);
+    } catch (error) {
+      await this.moodleService.deleteUser(moodleUser.id).catch(() => undefined);
+      throw error;
+    }
 
     return this.sanitizeUser(createdUser);
   }
 
-  async findByEmailWithPassword(
-    email: string,
+  async findByIdentifierWithPassword(
+    identifier: string,
   ): Promise<UserWithPassword | null> {
+    const normalizedIdentifier = identifier.trim();
+
     return this.userRepository.findOne({
-      where: { email },
+      where: [
+        { email: normalizedIdentifier.toLowerCase() },
+        { username: normalizedIdentifier },
+      ],
       select: {
         id: true,
+        username: true,
         name: true,
+        lastname: true,
         email: true,
+        suspended: true,
+        moodleUserId: true,
         password: true,
+        role: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -91,9 +144,14 @@ export class UserService {
       where: { id },
       select: {
         id: true,
+        username: true,
         name: true,
+        lastname: true,
         email: true,
+        suspended: true,
+        moodleUserId: true,
         password: true,
+        role: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -104,22 +162,65 @@ export class UserService {
     }
 
     if (updateUserDto.email && updateUserDto.email !== user.email) {
+      const normalizedEmail = updateUserDto.email.trim().toLowerCase();
       const existingUser = await this.userRepository.findOneBy({
-        email: updateUserDto.email,
+        email: normalizedEmail,
       });
 
       if (existingUser) {
         throw new ConflictException('A user with this email already exists.');
       }
+
+      updateUserDto.email = normalizedEmail;
     }
 
-    const payload = { ...updateUserDto };
+    if (updateUserDto.username && updateUserDto.username !== user.username) {
+      const normalizedUsername = updateUserDto.username.trim();
+      const existingUsername = await this.userRepository.findOneBy({
+        username: normalizedUsername,
+      });
+
+      if (existingUsername) {
+        throw new ConflictException('A user with this username already exists.');
+      }
+
+      updateUserDto.username = normalizedUsername;
+    }
+
+    const { roleId, ...payload } = updateUserDto;
 
     if (updateUserDto.password) {
       payload.password = await bcrypt.hash(updateUserDto.password, 10);
     }
 
-    const updatedUser = this.userRepository.merge(user, payload);
+    const role =
+      roleId !== undefined && roleId !== null
+        ? await this.roleRepository.findOneBy({ id: roleId })
+        : roleId === null
+          ? null
+          : undefined;
+
+    if (roleId !== undefined && roleId !== null && !role) {
+      throw new NotFoundException(`Role with id ${roleId} not found.`);
+    }
+
+    if (user.moodleUserId) {
+      await this.moodleService.updateUser({
+        id: user.moodleUserId,
+        ...(payload.username !== undefined ? { username: payload.username } : {}),
+        ...(payload.name !== undefined ? { firstname: payload.name } : {}),
+        ...(payload.lastname !== undefined ? { lastname: payload.lastname } : {}),
+        ...(payload.email !== undefined ? { email: payload.email } : {}),
+        ...(payload.suspended !== undefined
+          ? { suspended: payload.suspended === '1' }
+          : {}),
+      });
+    }
+
+    const updatedUser = this.userRepository.merge(user, {
+      ...payload,
+      ...(roleId !== undefined ? { role } : {}),
+    });
 
     const savedUser = await this.userRepository.save(updatedUser);
 
@@ -131,9 +232,14 @@ export class UserService {
       where: { id },
       select: {
         id: true,
+        username: true,
         name: true,
+        lastname: true,
         email: true,
+        suspended: true,
+        moodleUserId: true,
         password: true,
+        role: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -141,6 +247,10 @@ export class UserService {
 
     if (!user) {
       throw new NotFoundException(`User with id ${id} not found.`);
+    }
+
+    if (user.moodleUserId) {
+      await this.moodleService.deleteUser(user.moodleUserId);
     }
 
     await this.userRepository.remove(user);

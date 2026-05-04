@@ -1,9 +1,10 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { CreateUserDto } from '../user/dto/create-user.dto';
 import type { UserResponse } from '../user/user.service';
 import { AuthService } from './auth.service';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { LoginDto } from './dto/login.dto';
+import { PublicCourseRegisterDto } from './dto/public-course-register.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import type { AuthenticatedUser } from './types/authenticated-user.type';
 
@@ -22,6 +23,27 @@ export class AuthController {
     user: UserResponse;
   }> {
     return this.authService.login(loginDto);
+  }
+
+  @Get('public-courses')
+  findPublicCourses() {
+    return this.authService.findPublicCourses();
+  }
+
+  @Get('public-courses/:slug')
+  findPublicCourse(@Param('slug') slug: string) {
+    return this.authService.findPublicCourseBySlug(slug);
+  }
+
+  @Post('public-courses/:slug/register')
+  registerForPublicCourseSlug(
+    @Param('slug') slug: string,
+    @Body() dto: PublicCourseRegisterDto,
+  ): Promise<{
+    accessToken: string;
+    user: UserResponse;
+  }> {
+    return this.authService.registerForPublicCourseSlug(slug, dto);
   }
 
   @Get('me')

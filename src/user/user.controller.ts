@@ -10,39 +10,64 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { PermissionsGuard } from '../auth/guards/permissions.guard';
+import { RequirePermissions } from '../auth/decorators/require-permissions.decorator';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import type { AuthenticatedUser } from '../auth/types/authenticated-user.type';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UserResponse, UserService } from './user.service';
 
 @Controller('users')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class UserController {
   constructor(private readonly userService: UserService) {}
 
+  private isMaster(user: AuthenticatedUser): boolean {
+    return user.role?.name.toLowerCase() === 'master';
+  }
+
   @Get()
+  @RequirePermissions('users.read')
   findAll(): Promise<UserResponse[]> {
     return this.userService.findAll();
   }
 
   @Get(':id')
+  @RequirePermissions('users.read')
   findOne(@Param('id', ParseIntPipe) id: number): Promise<UserResponse> {
     return this.userService.findOne(id);
   }
 
   @Post()
-  create(@Body() createUserDto: CreateUserDto): Promise<UserResponse> {
+  @RequirePermissions('users.create')
+  create(
+    @Body() createUserDto: CreateUserDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<UserResponse> {
+    if (!this.isMaster(user)) {
+      delete createUserDto.suspended;
+    }
+
     return this.userService.create(createUserDto);
   }
 
   @Patch(':id')
+  @RequirePermissions('users.update')
   update(
     @Param('id', ParseIntPipe) id: number,
     @Body() updateUserDto: UpdateUserDto,
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<UserResponse> {
+    if (!this.isMaster(user)) {
+      delete updateUserDto.suspended;
+    }
+
     return this.userService.update(id, updateUserDto);
   }
 
   @Delete(':id')
+  @RequirePermissions('users.delete')
   remove(@Param('id', ParseIntPipe) id: number): Promise<{ message: string }> {
     return this.userService.remove(id);
   }
