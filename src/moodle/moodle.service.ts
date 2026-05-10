@@ -9,7 +9,6 @@ type MoodleUserPayload = {
   firstname: string;
   lastname: string;
   email: string;
-  suspended?: boolean;
 };
 
 type MoodleCreatedUser = {
@@ -56,6 +55,9 @@ type MoodleResponse<T> = {
   payload: T | MoodleException | null;
   rawBody: string;
 };
+
+const MOODLE_PASSWORD_MESSAGE =
+  'A senha nao atende aos requisitos do Moodle. Use pelo menos 8 caracteres, com uma letra maiuscula, uma letra minuscula, um numero e um caractere especial.';
 
 @Injectable()
 export class MoodleService {
@@ -128,6 +130,25 @@ export class MoodleService {
     return normalizedUrl.replace(/\/+$/, '');
   }
 
+  private formatMoodleError(
+    wsFunction: string,
+    payload: MoodleException,
+  ): string {
+    const details = [payload.message, payload.debuginfo]
+      .filter(Boolean)
+      .join(' - ');
+    const normalizedDetails = details.toLowerCase();
+
+    if (
+      wsFunction === 'core_user_create_users' &&
+      normalizedDetails.includes('password')
+    ) {
+      return MOODLE_PASSWORD_MESSAGE;
+    }
+
+    return `${wsFunction}: ${details || 'Moodle returned an error.'}`;
+  }
+
   private async callMoodle<T>(
     wsFunction: string,
     params: URLSearchParams,
@@ -170,13 +191,7 @@ export class MoodleService {
       'exception' in payload &&
       payload.exception
     ) {
-      const details = [payload.message, payload.debuginfo]
-        .filter(Boolean)
-        .join(' - ');
-
-      throw new BadRequestException(
-        `${wsFunction}: ${details || 'Moodle returned an error.'}`,
-      );
+      throw new BadRequestException(this.formatMoodleError(wsFunction, payload));
     }
 
     return payload as T;
@@ -221,18 +236,6 @@ export class MoodleService {
 
     if (!createdUser?.id) {
       throw new BadRequestException('Moodle did not return the created user.');
-    }
-
-    if (payload.suspended) {
-      try {
-        await this.updateUser({
-          id: createdUser.id,
-          suspended: payload.suspended,
-        });
-      } catch (error) {
-        await this.deleteUser(createdUser.id).catch(() => undefined);
-        throw error;
-      }
     }
 
     return createdUser;

@@ -70,4 +70,24 @@ export class UpdateSettingDto {
   @IsString()
   @Length(1, 255)
   bunnyStorageLogoFolder?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 255)
+  pixKey?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 255)
+  pixMerchantName?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 255)
+  pixMerchantCity?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 255)
+  pixCallbackSecret?: string;
 }

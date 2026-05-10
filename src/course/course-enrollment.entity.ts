@@ -1,4 +1,5 @@
 import {
+  Column,
   CreateDateColumn,
   Entity,
   JoinColumn,
@@ -28,6 +29,36 @@ export class CourseEnrollment {
   @ManyToOne(() => Role, { eager: true, nullable: false, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'role_id' })
   role: Role;
+
+  @Column({ type: 'varchar', length: 30, default: 'active' })
+  status: 'active' | 'pending_payment';
+
+  @Column({ name: 'payment_method', type: 'varchar', length: 20, nullable: true })
+  paymentMethod: 'pix' | 'boleto' | 'card' | 'bank_transfer' | 'cash_in_person' | null;
+
+  @Column({ name: 'payment_term', type: 'varchar', length: 20, nullable: true })
+  paymentTerm: 'cash' | 'installments' | null;
+
+  @Column({ type: 'int', nullable: true })
+  installments: number | null;
+
+  @Column({ name: 'amount_due', type: 'numeric', precision: 10, scale: 2, nullable: true })
+  amountDue: string | null;
+
+  @Column({ name: 'paid_at', type: 'timestamp', nullable: true })
+  paidAt: Date | null;
+
+  @Column({ name: 'pix_txid', type: 'varchar', length: 35, nullable: true })
+  pixTxid: string | null;
+
+  @Column({ name: 'pix_copy_paste', type: 'text', nullable: true })
+  pixCopyPaste: string | null;
+
+  @Column({ name: 'pix_expires_at', type: 'timestamp', nullable: true })
+  pixExpiresAt: Date | null;
+
+  @Column({ name: 'pix_callback_payload', type: 'jsonb', nullable: true })
+  pixCallbackPayload: Record<string, unknown> | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

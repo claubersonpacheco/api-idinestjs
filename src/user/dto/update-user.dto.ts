@@ -4,8 +4,8 @@ import {
   IsOptional,
   IsString,
   Length,
-  MinLength,
 } from 'class-validator';
+import { IsMoodlePassword } from './moodle-password.decorator';
 
 export class UpdateUserDto {
   @IsOptional()
@@ -42,6 +42,6 @@ export class UpdateUserDto {
 
   @IsOptional()
   @IsString()
-  @MinLength(6)
+  @IsMoodlePassword()
   password?: string;
 }

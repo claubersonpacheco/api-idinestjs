@@ -1,4 +1,6 @@
-import { IsEmail, IsNotEmpty, IsOptional, IsString, Length, MinLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsEmail, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, Length, Min } from 'class-validator';
+import { IsMoodlePassword } from '../../user/dto/moodle-password.decorator';
 
 export class PublicCourseRegisterDto {
   @IsString()
@@ -21,6 +23,20 @@ export class PublicCourseRegisterDto {
 
   @IsString()
   @IsNotEmpty()
-  @MinLength(6)
+  @IsMoodlePassword()
   password: string;
+
+  @IsOptional()
+  @IsIn(['pix', 'boleto', 'card', 'bank_transfer', 'cash_in_person'])
+  paymentMethod?: 'pix' | 'boleto' | 'card' | 'bank_transfer' | 'cash_in_person';
+
+  @IsOptional()
+  @IsIn(['cash', 'installments'])
+  paymentTerm?: 'cash' | 'installments';
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  installments?: number;
 }

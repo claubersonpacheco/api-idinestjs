@@ -7,8 +7,11 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  UploadedFile,
+  UseInterceptors,
   UseGuards,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -19,6 +22,13 @@ import { CourseService } from './course.service';
 import { CreateCourseDto } from './dto/create-course.dto';
 import { EnrollUserDto } from './dto/enroll-user.dto';
 import { UpdateCourseDto } from './dto/update-course.dto';
+
+type UploadedImageFile = {
+  buffer: Buffer;
+  mimetype: string;
+  originalname: string;
+  size: number;
+};
 
 @Controller('courses')
 @UseGuards(JwtAuthGuard, PermissionsGuard)
@@ -71,6 +81,16 @@ export class CourseController {
     return this.courseService.enrollUser(id, dto);
   }
 
+  @Post(':id/image')
+  @RequirePermissions('courses.update')
+  @UseInterceptors(FileInterceptor('image'))
+  uploadImage(
+    @Param('id', ParseIntPipe) id: number,
+    @UploadedFile() file: UploadedImageFile,
+  ): Promise<Course> {
+    return this.courseService.uploadCourseImage(id, file);
+  }
+
   @Delete(':id/enrollments/:enrollmentId')
   @RequirePermissions('courses.update')
   unenrollUser(
@@ -78,6 +98,15 @@ export class CourseController {
     @Param('enrollmentId', ParseIntPipe) enrollmentId: number,
   ) {
     return this.courseService.unenrollUser(id, enrollmentId);
+  }
+
+  @Patch(':id/enrollments/:enrollmentId/approve-payment')
+  @RequirePermissions('courses.update')
+  approveEnrollmentPayment(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('enrollmentId', ParseIntPipe) enrollmentId: number,
+  ) {
+    return this.courseService.approveEnrollmentPayment(id, enrollmentId);
   }
 
   @Patch(':id')

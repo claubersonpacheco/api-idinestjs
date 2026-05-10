@@ -7,6 +7,8 @@ import { ChangePasswordDto } from './dto/change-password.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
 import { PublicCourseRegisterDto } from './dto/public-course-register.dto';
+import { PublicCourseLoginDto } from './dto/public-course-login.dto';
+import { PixCallbackDto } from '../course/dto/pix-callback.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import type { AuthenticatedUser } from './types/authenticated-user.type';
@@ -45,8 +47,28 @@ export class AuthController {
   ): Promise<{
     accessToken: string;
     user: UserResponse;
+    enrollmentStatus?: string;
+    enrollment?: unknown;
   }> {
     return this.authService.registerForPublicCourseSlug(slug, dto);
+  }
+
+  @Post('public-courses/:slug/login')
+  loginForPublicCourseSlug(
+    @Param('slug') slug: string,
+    @Body() loginDto: PublicCourseLoginDto,
+  ): Promise<{
+    accessToken: string;
+    user: UserResponse;
+    enrollmentStatus?: string;
+    enrollment?: unknown;
+  }> {
+    return this.authService.loginForPublicCourseSlug(slug, loginDto);
+  }
+
+  @Post('payments/pix/callback')
+  confirmPixPayment(@Body() dto: PixCallbackDto) {
+    return this.authService.confirmPixPayment(dto);
   }
 
   @Get('me')

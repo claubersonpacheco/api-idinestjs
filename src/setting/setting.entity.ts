@@ -53,6 +53,18 @@ export class Setting {
   @Column({ type: 'varchar', length: 255, nullable: true })
   bunnyStorageLogoFolder: string | null;
 
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  pixKey: string | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  pixMerchantName: string | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  pixMerchantCity: string | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  pixCallbackSecret: string | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

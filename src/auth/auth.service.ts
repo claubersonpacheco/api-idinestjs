@@ -7,6 +7,7 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { CourseService } from '../course/course.service';
+import { PixCallbackDto } from '../course/dto/pix-callback.dto';
 import { MailService } from '../mail/mail.service';
 import { CreateUserDto } from '../user/dto/create-user.dto';
 import {
@@ -18,6 +19,7 @@ import { ChangePasswordDto } from './dto/change-password.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
 import { PublicCourseRegisterDto } from './dto/public-course-register.dto';
+import { PublicCourseLoginDto } from './dto/public-course-login.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import type { AuthenticatedUser } from './types/authenticated-user.type';
 
@@ -86,6 +88,8 @@ export class AuthService {
   ): Promise<{
     accessToken: string;
     user: UserResponse;
+    enrollmentStatus?: string;
+    enrollment?: unknown;
   }> {
     await this.courseService.findPublicCourse(courseId);
 
@@ -97,12 +101,18 @@ export class AuthService {
       password: dto.password,
     });
 
-    await this.courseService.enrollPublicUser(courseId, user.id);
+    const enrollment = await this.courseService.enrollPublicUser(courseId, user.id, {
+      paymentMethod: dto.paymentMethod,
+      paymentTerm: dto.paymentTerm,
+      installments: dto.installments,
+    });
 
-    return this.login({
+    const session = await this.login({
       identifier: dto.username,
       password: dto.password,
     });
+
+    return { ...session, enrollmentStatus: enrollment.status, enrollment };
   }
 
   async registerForPublicCourseSlug(
@@ -111,6 +121,8 @@ export class AuthService {
   ): Promise<{
     accessToken: string;
     user: UserResponse;
+    enrollmentStatus?: string;
+    enrollment?: unknown;
   }> {
     await this.courseService.findPublicCourseBySlug(slug);
 
@@ -122,12 +134,53 @@ export class AuthService {
       password: dto.password,
     });
 
-    await this.courseService.enrollPublicUserBySlug(slug, user.id);
+    const enrollment = await this.courseService.enrollPublicUserBySlug(slug, user.id, {
+      paymentMethod: dto.paymentMethod,
+      paymentTerm: dto.paymentTerm,
+      installments: dto.installments,
+    });
 
-    return this.login({
+    const session = await this.login({
       identifier: dto.username,
       password: dto.password,
     });
+
+    return { ...session, enrollmentStatus: enrollment.status, enrollment };
+  }
+
+  async loginForPublicCourseSlug(
+    slug: string,
+    loginDto: PublicCourseLoginDto,
+  ): Promise<{
+    accessToken: string;
+    user: UserResponse;
+    enrollmentStatus?: string;
+    enrollment?: unknown;
+  }> {
+    await this.courseService.findPublicCourseBySlug(slug);
+    const session = await this.login(loginDto);
+
+    const enrollment = await this.courseService.enrollPublicUserBySlug(slug, session.user.id, {
+      paymentMethod: loginDto.paymentMethod,
+      paymentTerm: loginDto.paymentTerm,
+      installments: loginDto.installments,
+    }).catch(
+      (error) => {
+        const message = error instanceof Error ? error.message : String(error);
+
+        if (message.includes('already enrolled')) {
+          return null;
+        }
+
+        throw error;
+      },
+    );
+
+    return { ...session, enrollmentStatus: enrollment?.status, enrollment };
+  }
+
+  confirmPixPayment(dto: PixCallbackDto) {
+    return this.courseService.confirmPixPayment(dto);
   }
 
   private async validateUser(
