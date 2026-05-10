@@ -39,12 +39,6 @@ function normalizeMoodleUrl(rawUrl: string): string {
 }
 
 async function main() {
-  const token = process.env.MOODLE_TEST_TOKEN?.trim();
-
-  if (!token) {
-    throw new Error('MOODLE_TEST_TOKEN is not configured in .env.');
-  }
-
   const dataSource = new DataSource(typeOrmConfig);
   await dataSource.initialize();
 
@@ -56,8 +50,8 @@ async function main() {
       take: 1,
     });
 
-    if (!setting?.moodleUrl) {
-      throw new Error('No Moodle URL found in the latest setting.');
+    if (!setting?.moodleUrl || !setting.moodleToken) {
+      throw new Error('No Moodle URL/token found in the latest setting.');
     }
 
     const moodleUrl = normalizeMoodleUrl(setting.moodleUrl);
@@ -65,7 +59,7 @@ async function main() {
       ? moodleUrl
       : `${moodleUrl.replace(/\/+$/, '')}/webservice/rest/server.php`;
     const params = new URLSearchParams({
-      wstoken: token,
+      wstoken: setting.moodleToken.trim(),
       wsfunction: 'core_webservice_get_site_info',
       moodlewsrestformat: 'json',
     });

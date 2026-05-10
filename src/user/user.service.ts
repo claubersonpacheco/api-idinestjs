@@ -83,7 +83,6 @@ export class UserService {
       firstname: createUserDto.name.trim(),
       lastname: createUserDto.lastname?.trim() || createUserDto.name.trim(),
       email: normalizedEmail,
-      suspended: createUserDto.suspended === '1',
     });
 
     let createdUser: User;

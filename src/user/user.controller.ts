@@ -54,12 +54,7 @@ export class UserController {
   @RequirePermissions('users.create')
   create(
     @Body() createUserDto: CreateUserDto,
-    @CurrentUser() user: AuthenticatedUser,
   ): Promise<UserResponse> {
-    if (!this.isMaster(user)) {
-      delete createUserDto.suspended;
-    }
-
     return this.userService.create(createUserDto);
   }
 

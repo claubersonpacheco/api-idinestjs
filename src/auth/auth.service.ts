@@ -95,7 +95,6 @@ export class AuthService {
       lastname: dto.lastname,
       email: dto.email,
       password: dto.password,
-      suspended: '0',
     });
 
     await this.courseService.enrollPublicUser(courseId, user.id);
@@ -121,7 +120,6 @@ export class AuthService {
       lastname: dto.lastname,
       email: dto.email,
       password: dto.password,
-      suspended: '0',
     });
 
     await this.courseService.enrollPublicUserBySlug(slug, user.id);

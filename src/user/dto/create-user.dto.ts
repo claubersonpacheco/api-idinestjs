@@ -28,11 +28,6 @@ export class CreateUserDto {
   email: string;
 
   @IsOptional()
-  @IsString()
-  @Length(1, 1)
-  suspended?: string;
-
-  @IsOptional()
   @IsInt()
   moodleUserId?: number;
 

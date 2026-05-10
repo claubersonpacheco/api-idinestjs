@@ -223,6 +223,18 @@ export class MoodleService {
       throw new BadRequestException('Moodle did not return the created user.');
     }
 
+    if (payload.suspended) {
+      try {
+        await this.updateUser({
+          id: createdUser.id,
+          suspended: payload.suspended,
+        });
+      } catch (error) {
+        await this.deleteUser(createdUser.id).catch(() => undefined);
+        throw error;
+      }
+    }
+
     return createdUser;
   }
 
