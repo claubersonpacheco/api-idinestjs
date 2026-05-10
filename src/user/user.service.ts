@@ -1,11 +1,7 @@
-import {
-  ConflictException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
-import { Repository } from 'typeorm';
+import { QueryFailedError, Repository } from 'typeorm';
 import { MoodleService } from '../moodle/moodle.service';
 import { Role } from '../role/role.entity';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -17,6 +13,8 @@ export type UserWithPassword = User;
 
 @Injectable()
 export class UserService {
+  private readonly logger = new Logger(UserService.name);
+
   constructor(
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
@@ -136,6 +134,112 @@ export class UserService {
     });
   }
 
+  async findByIdWithPassword(userId: number): Promise<UserWithPassword | null> {
+    return this.userRepository.findOne({
+      where: { id: userId },
+      select: {
+        id: true,
+        username: true,
+        name: true,
+        lastname: true,
+        email: true,
+        suspended: true,
+        moodleUserId: true,
+        password: true,
+        role: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+  }
+
+  async findByEmail(email: string): Promise<User | null> {
+    return this.userRepository.findOne({
+      where: { email: email.trim().toLowerCase() },
+    });
+  }
+
+  async findByResetToken(token: string): Promise<User | null> {
+    return this.userRepository.findOne({
+      where: { resetPasswordToken: token },
+      select: {
+        id: true,
+        username: true,
+        name: true,
+        lastname: true,
+        email: true,
+        suspended: true,
+        moodleUserId: true,
+        password: true,
+        role: true,
+        resetPasswordToken: true,
+        resetPasswordExpires: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+  }
+
+  async updateResetToken(
+    userId: number,
+    resetPasswordToken: string | null,
+    resetPasswordExpires: Date | null,
+  ): Promise<void> {
+    await this.userRepository.update(userId, {
+      resetPasswordToken,
+      resetPasswordExpires,
+    });
+  }
+
+  async updatePassword(userId: number, password: string): Promise<void> {
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+      select: {
+        id: true,
+        username: true,
+        name: true,
+        lastname: true,
+        email: true,
+        moodleUserId: true,
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException(`User with id ${userId} not found.`);
+    }
+
+    let moodleUserId = user.moodleUserId;
+
+    if (!moodleUserId) {
+      const moodleUser =
+        (await this.moodleService.findUserByField('email', user.email).catch(
+          () => null,
+        )) ??
+        (await this.moodleService.findUserByField('username', user.username).catch(
+          () => null,
+        ));
+
+      if (moodleUser?.id) {
+        moodleUserId = moodleUser.id;
+        await this.userRepository.update(user.id, { moodleUserId });
+      }
+    }
+
+    if (moodleUserId) {
+      await this.moodleService.updateUser({
+        id: moodleUserId,
+        username: user.username,
+        password,
+        firstname: user.name,
+        lastname: user.lastname || user.name,
+        email: user.email,
+      });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    await this.userRepository.update(userId, { password: hashedPassword });
+  }
+
   async update(
     id: number,
     updateUserDto: UpdateUserDto,
@@ -208,6 +312,9 @@ export class UserService {
       await this.moodleService.updateUser({
         id: user.moodleUserId,
         ...(payload.username !== undefined ? { username: payload.username } : {}),
+        ...(updateUserDto.password !== undefined
+          ? { password: updateUserDto.password }
+          : {}),
         ...(payload.name !== undefined ? { firstname: payload.name } : {}),
         ...(payload.lastname !== undefined ? { lastname: payload.lastname } : {}),
         ...(payload.email !== undefined ? { email: payload.email } : {}),
@@ -249,11 +356,30 @@ export class UserService {
       throw new NotFoundException(`User with id ${id} not found.`);
     }
 
-    if (user.moodleUserId) {
-      await this.moodleService.deleteUser(user.moodleUserId);
+    try {
+      await this.userRepository.remove(user);
+    } catch (error) {
+      if (error instanceof QueryFailedError) {
+        const driverError = error.driverError as { code?: string };
+
+        if (driverError.code === '23503') {
+          throw new ConflictException(
+            'Nao foi possivel excluir este usuario porque existem registros vinculados a ele.',
+          );
+        }
+      }
+
+      throw error;
     }
 
-    await this.userRepository.remove(user);
+    if (user.moodleUserId) {
+      await this.moodleService.deleteUser(user.moodleUserId).catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.warn(
+          `User ${user.id} was deleted locally, but Moodle user ${user.moodleUserId} could not be deleted: ${message}`,
+        );
+      });
+    }
 
     return {
       message: 'User deleted successfully.',

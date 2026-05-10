@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Param,
   ParseIntPipe,
@@ -25,6 +26,16 @@ export class UserController {
 
   private isMaster(user: AuthenticatedUser): boolean {
     return user.role?.name.toLowerCase() === 'master';
+  }
+
+  private hasPermission(user: AuthenticatedUser, permission: string): boolean {
+    if (this.isMaster(user)) {
+      return true;
+    }
+
+    return (
+      user.role?.permissions.some((item) => item.name === permission) ?? false
+    );
   }
 
   @Get()
@@ -53,7 +64,6 @@ export class UserController {
   }
 
   @Patch(':id')
-  @RequirePermissions('users.update')
   update(
     @Param('id', ParseIntPipe) id: number,
     @Body() updateUserDto: UpdateUserDto,
@@ -61,6 +71,20 @@ export class UserController {
   ): Promise<UserResponse> {
     if (!this.isMaster(user)) {
       delete updateUserDto.suspended;
+    }
+
+    if (!this.hasPermission(user, 'users.update')) {
+      if (user.sub !== id) {
+        throw new ForbiddenException('User does not have permission.');
+      }
+
+      delete updateUserDto.roleId;
+      delete updateUserDto.moodleUserId;
+      delete updateUserDto.password;
+    }
+
+    if (!this.hasPermission(user, 'user.email')) {
+      delete updateUserDto.email;
     }
 
     return this.userService.update(id, updateUserDto);

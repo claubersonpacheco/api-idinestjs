@@ -33,6 +33,14 @@ type MoodleCourse = {
   fullname: string;
 };
 
+type MoodleUser = {
+  id: number;
+  username: string;
+  firstname?: string;
+  lastname?: string;
+  email: string;
+};
+
 type MoodleLoginUrlResponse = {
   loginurl: string;
 };
@@ -249,6 +257,7 @@ export class MoodleService {
   async updateUser(payload: {
     id: number;
     username?: string;
+    password?: string;
     firstname?: string;
     lastname?: string | null;
     email?: string;
@@ -260,6 +269,10 @@ export class MoodleService {
 
     if (payload.username !== undefined) {
       params.set('users[0][username]', payload.username);
+    }
+
+    if (payload.password !== undefined) {
+      params.set('users[0][password]', payload.password);
     }
 
     if (payload.firstname !== undefined) {
@@ -279,6 +292,23 @@ export class MoodleService {
     }
 
     await this.callMoodle<unknown>('core_user_update_users', params);
+  }
+
+  async findUserByField(
+    field: 'id' | 'username' | 'email',
+    value: string | number,
+  ): Promise<MoodleUser | null> {
+    const params = new URLSearchParams();
+
+    params.set('field', field);
+    params.set('values[0]', String(value));
+
+    const users = await this.callMoodle<MoodleUser[]>(
+      'core_user_get_users_by_field',
+      params,
+    );
+
+    return users[0] ?? null;
   }
 
   async createCategory(payload: {

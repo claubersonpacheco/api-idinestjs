@@ -6,6 +6,7 @@ import {
   IsString,
   Length,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class UpdateRoleDto {
   @IsOptional()
@@ -18,12 +19,14 @@ export class UpdateRoleDto {
   description?: string;
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
-  moodleRoleId?: number;
+  moodleRoleId?: number | null;
 
   @IsOptional()
   @IsArray()
   @ArrayUnique()
+  @Type(() => Number)
   @IsInt({ each: true })
   permissionIds?: number[];
 }

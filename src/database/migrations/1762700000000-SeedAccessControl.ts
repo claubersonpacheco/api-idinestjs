@@ -5,6 +5,7 @@ const permissions = [
   'users.create',
   'users.update',
   'users.delete',
+  'user.email',
   'roles.read',
   'roles.create',
   'roles.update',

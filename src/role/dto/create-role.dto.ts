@@ -6,6 +6,7 @@ import {
   IsString,
   Length,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class CreateRoleDto {
   @IsString()
@@ -17,12 +18,14 @@ export class CreateRoleDto {
   description?: string;
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   moodleRoleId?: number;
 
   @IsOptional()
   @IsArray()
   @ArrayUnique()
+  @Type(() => Number)
   @IsInt({ each: true })
   permissionIds?: number[];
 }

@@ -42,6 +42,12 @@ export class User {
   @Column({ length: 255, select: false })
   password: string;
 
+  @Column({ name: 'reset_password_token', type: 'varchar', length: 255, nullable: true })
+  resetPasswordToken: string | null;
+
+  @Column({ name: 'reset_password_expires', type: 'timestamp', nullable: true })
+  resetPasswordExpires: Date | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
