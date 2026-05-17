@@ -17,6 +17,15 @@ export class Setting {
   @Column({ type: 'varchar', length: 512, nullable: true })
   logo: string | null;
 
+  @Column({ type: 'varchar', length: 512, nullable: true })
+  logoIcon: string | null;
+
+  @Column({ type: 'varchar', length: 512, nullable: true })
+  logoPrint: string | null;
+
+  @Column({ type: 'varchar', length: 512, nullable: true })
+  logoWhite: string | null;
+
   @Column({ type: 'varchar', length: 255, nullable: true })
   streamLibraryId: string | null;
 

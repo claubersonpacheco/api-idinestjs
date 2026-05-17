@@ -69,6 +69,17 @@ export class SettingController {
     return this.settingService.uploadLogo(id, file);
   }
 
+  @Post(':id/logos/:type')
+  @RequirePermissions('settings.update')
+  @UseInterceptors(FileInterceptor('logo'))
+  uploadLogoVariant(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('type') type: string,
+    @UploadedFile() file: UploadedImageFile,
+  ): Promise<Setting> {
+    return this.settingService.uploadLogo(id, file, type);
+  }
+
   @Delete(':id')
   @RequirePermissions('settings.delete')
   remove(@Param('id', ParseIntPipe) id: number): Promise<{ message: string }> {

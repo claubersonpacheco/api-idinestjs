@@ -12,6 +12,8 @@ type UploadedImageFile = {
   size: number;
 };
 
+type LogoVariant = 'icon' | 'print' | 'white';
+
 @Injectable()
 export class SettingService {
   constructor(
@@ -135,8 +137,23 @@ export class SettingService {
     };
   }
 
-  async uploadLogo(id: number, file?: UploadedImageFile): Promise<Setting> {
+  private normalizeLogoVariant(type?: string): LogoVariant {
+    if (type === 'icon' || type === 'print' || type === 'white') {
+      return type;
+    }
+
+    throw new BadRequestException(
+      'Tipo de logo invalido. Use icon, print ou white.',
+    );
+  }
+
+  async uploadLogo(
+    id: number,
+    file?: UploadedImageFile,
+    type: string = 'white',
+  ): Promise<Setting> {
     const setting = await this.findOne(id);
+    const logoVariant = this.normalizeLogoVariant(type);
 
     if (!file) {
       throw new BadRequestException('Selecione uma logo para enviar.');
@@ -155,7 +172,7 @@ export class SettingService {
     const config = this.getBunnyStorageConfig(setting);
     const baseName = this.sanitizePathSegment(setting.name || `setting-${setting.id}`);
     const fileName = `${setting.id}-${Date.now()}-${baseName || 'logo'}.${extension}`;
-    const storagePath = `${config.logoFolder.replace(/\/+$/, '')}/${fileName}`;
+    const storagePath = `${config.logoFolder.replace(/\/+$/, '')}/${logoVariant}/${fileName}`;
     const uploadUrl = `https://storage.bunnycdn.com/${config.zoneName}/${storagePath}`;
     const uploadBody = new ArrayBuffer(file.buffer.byteLength);
     new Uint8Array(uploadBody).set(file.buffer);
@@ -176,7 +193,17 @@ export class SettingService {
       );
     }
 
-    setting.logo = `${config.publicBaseUrl}/${storagePath}`;
+    const logoUrl = `${config.publicBaseUrl}/${storagePath}`;
+
+    if (logoVariant === 'icon') {
+      setting.logoIcon = logoUrl;
+    } else if (logoVariant === 'print') {
+      setting.logoPrint = logoUrl;
+    } else {
+      setting.logoWhite = logoUrl;
+      setting.logo = logoUrl;
+    }
+
     return this.settingRepository.save(setting);
   }
 

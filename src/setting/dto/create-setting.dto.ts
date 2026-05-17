@@ -13,6 +13,21 @@ export class CreateSettingDto {
 
   @IsOptional()
   @IsString()
+  @Length(1, 512)
+  logoIcon?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 512)
+  logoPrint?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 512)
+  logoWhite?: string;
+
+  @IsOptional()
+  @IsString()
   @Length(1, 255)
   streamLibraryId?: string;
 
