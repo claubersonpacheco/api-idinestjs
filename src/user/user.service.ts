@@ -1,15 +1,29 @@
-import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
 import { QueryFailedError, Repository } from 'typeorm';
 import { MoodleService } from '../moodle/moodle.service';
 import { Role } from '../role/role.entity';
+import { Setting } from '../setting/setting.entity';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { User } from './user.entity';
 
 export type UserResponse = Omit<User, 'password'>;
 export type UserWithPassword = User;
+
+type UploadedImageFile = {
+  buffer: Buffer;
+  mimetype: string;
+  originalname: string;
+  size: number;
+};
 
 @Injectable()
 export class UserService {
@@ -20,6 +34,8 @@ export class UserService {
     private readonly userRepository: Repository<User>,
     @InjectRepository(Role)
     private readonly roleRepository: Repository<Role>,
+    @InjectRepository(Setting)
+    private readonly settingRepository: Repository<Setting>,
     private readonly moodleService: MoodleService,
   ) {}
 
@@ -125,6 +141,7 @@ export class UserService {
         email: true,
         suspended: true,
         moodleUserId: true,
+        photoUrl: true,
         password: true,
         role: true,
         createdAt: true,
@@ -144,6 +161,7 @@ export class UserService {
         email: true,
         suspended: true,
         moodleUserId: true,
+        photoUrl: true,
         password: true,
         role: true,
         createdAt: true,
@@ -169,6 +187,7 @@ export class UserService {
         email: true,
         suspended: true,
         moodleUserId: true,
+        photoUrl: true,
         password: true,
         role: true,
         resetPasswordToken: true,
@@ -200,6 +219,7 @@ export class UserService {
         lastname: true,
         email: true,
         moodleUserId: true,
+        photoUrl: true,
       },
     });
 
@@ -253,6 +273,7 @@ export class UserService {
         email: true,
         suspended: true,
         moodleUserId: true,
+        photoUrl: true,
         password: true,
         role: true,
         createdAt: true,
@@ -333,6 +354,150 @@ export class UserService {
     return this.sanitizeUser(savedUser);
   }
 
+  private async getBunnyStorageConfig(): Promise<{
+    zoneName: string;
+    accessKey: string;
+    publicBaseUrl: string;
+    userFolder: string;
+  }> {
+    const [setting] = await this.settingRepository.find({
+      order: { id: 'DESC' },
+      take: 1,
+    });
+    const zoneName = setting?.bunnyStorageZoneName?.trim();
+    const accessKey = setting?.bunnyStorageAccessKey?.trim();
+    const publicBaseUrl = (
+      setting?.bunnyStorageCdnDomain ||
+      setting?.bunnyStorageBaseUrl ||
+      ''
+    )
+      .trim()
+      .replace(/\/+$/, '');
+
+    if (!zoneName || !accessKey || !publicBaseUrl) {
+      throw new BadRequestException(
+        'Configure bunnyStorageZoneName, bunnyStorageAccessKey e bunnyStorageCdnDomain/baseUrl antes de enviar fotos.',
+      );
+    }
+
+    return {
+      zoneName,
+      accessKey,
+      publicBaseUrl: /^https?:\/\//.test(publicBaseUrl)
+        ? publicBaseUrl
+        : `https://${publicBaseUrl}`,
+      userFolder: setting?.bunnyStorageUserFolder?.trim() || 'users',
+    };
+  }
+
+  private getImageExtension(file: UploadedImageFile): string {
+    const extensionByMime: Record<string, string> = {
+      'image/jpeg': 'jpg',
+      'image/png': 'png',
+      'image/webp': 'webp',
+      'image/gif': 'gif',
+    };
+
+    return extensionByMime[file.mimetype] ?? '';
+  }
+
+  private sanitizePathSegment(value: string): string {
+    return value
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9-_]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .toLowerCase();
+  }
+
+  private async resolveMoodleUserId(user: User): Promise<number | null> {
+    if (user.moodleUserId) {
+      return user.moodleUserId;
+    }
+
+    const moodleUser =
+      (await this.moodleService.findUserByField('email', user.email).catch(
+        () => null,
+      )) ??
+      (await this.moodleService.findUserByField('username', user.username).catch(
+        () => null,
+      ));
+
+    if (!moodleUser?.id) {
+      return null;
+    }
+
+    await this.userRepository.update(user.id, { moodleUserId: moodleUser.id });
+    user.moodleUserId = moodleUser.id;
+
+    return moodleUser.id;
+  }
+
+  async uploadPhoto(id: number, file?: UploadedImageFile): Promise<UserResponse> {
+    const user = await this.userRepository.findOneBy({ id });
+
+    if (!user) {
+      throw new NotFoundException(`User with id ${id} not found.`);
+    }
+
+    if (!file) {
+      throw new BadRequestException('Selecione uma foto para enviar.');
+    }
+
+    const extension = this.getImageExtension(file);
+
+    if (!extension) {
+      throw new BadRequestException('Envie uma foto JPG, PNG, WEBP ou GIF.');
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      throw new BadRequestException('A foto deve ter no maximo 5MB.');
+    }
+
+    const moodleUserId = await this.resolveMoodleUserId(user);
+
+    if (!moodleUserId) {
+      throw new BadRequestException(
+        'Nao foi possivel localizar este usuario no Moodle para sincronizar a foto.',
+      );
+    }
+
+    await this.moodleService.updateUserPicture({
+      userId: moodleUserId,
+      file,
+    });
+
+    const config = await this.getBunnyStorageConfig();
+    const fileName = `${user.id}-${Date.now()}-${this.sanitizePathSegment(
+      user.username,
+    )}.${extension}`;
+    const storagePath = `${config.userFolder.replace(/\/+$/, '')}/${fileName}`;
+    const uploadUrl = `https://storage.bunnycdn.com/${config.zoneName}/${storagePath}`;
+    const uploadBody = new ArrayBuffer(file.buffer.byteLength);
+    new Uint8Array(uploadBody).set(file.buffer);
+
+    const response = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: {
+        AccessKey: config.accessKey,
+        'Content-Type': file.mimetype,
+      },
+      body: uploadBody,
+    });
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      throw new BadRequestException(
+        `Nao foi possivel enviar a foto para Bunny Storage. ${body || response.statusText}`,
+      );
+    }
+
+    user.photoUrl = `${config.publicBaseUrl}/${storagePath}`;
+    const savedUser = await this.userRepository.save(user);
+
+    return this.sanitizeUser(savedUser);
+  }
+
   async remove(id: number): Promise<{ message: string }> {
     const user = await this.userRepository.findOne({
       where: { id },
@@ -344,6 +509,7 @@ export class UserService {
         email: true,
         suspended: true,
         moodleUserId: true,
+        photoUrl: true,
         password: true,
         role: true,
         createdAt: true,

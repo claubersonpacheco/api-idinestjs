@@ -16,6 +16,7 @@ import { Course } from './course.entity';
 import { CreateCourseDto } from './dto/create-course.dto';
 import { EnrollUserDto } from './dto/enroll-user.dto';
 import { PixCallbackDto } from './dto/pix-callback.dto';
+import { UpdateEnrollmentPaymentDto } from './dto/update-enrollment-payment.dto';
 import { UpdateCourseDto } from './dto/update-course.dto';
 
 type PublicEnrollmentPaymentPayload = {
@@ -73,7 +74,7 @@ export class CourseService {
   async findPublicCourse(id: number): Promise<Course & { enrollmentCount: number }> {
     const course = await this.findOne(id);
 
-    this.ensurePublicCourseAvailable(course);
+    this.ensureCourseHasCapacity(course);
 
     return course;
   }
@@ -84,7 +85,6 @@ export class CourseService {
     const course = await this.courseRepository.findOne({
       where: {
         shortname: slug,
-        accessType: 'open',
       },
     });
 
@@ -93,7 +93,7 @@ export class CourseService {
     }
 
     const [courseWithCount] = await this.attachEnrollmentCounts([course]);
-    this.ensurePublicCourseAvailable(courseWithCount);
+    this.ensureCourseHasCapacity(courseWithCount);
     return courseWithCount;
   }
 
@@ -227,13 +227,9 @@ export class CourseService {
     }
   }
 
-  private ensurePublicCourseAvailable(
+  private ensureCourseHasCapacity(
     course: Course & { enrollmentCount?: number },
   ): void {
-    if (course.accessType !== 'open' && !course.isPublic) {
-      throw new NotFoundException(`Public course with id ${course.id} not found.`);
-    }
-
     if (
       course.capacityType === 'limited' &&
       course.capacityLimit !== null &&
@@ -781,7 +777,7 @@ export class CourseService {
     enrollment.paymentTerm = null;
     enrollment.installments = null;
     enrollment.amountDue = null;
-    enrollment.paidAt = new Date();
+    enrollment.paidAt = null;
     enrollment.pixTxid = null;
     enrollment.pixCopyPaste = null;
     enrollment.pixExpiresAt = null;
@@ -813,7 +809,7 @@ export class CourseService {
     userId: number,
     payment?: PublicEnrollmentPaymentPayload,
   ): Promise<CourseEnrollment> {
-    this.ensurePublicCourseAvailable(course);
+    this.ensureCourseHasCapacity(course);
 
     const role =
       (await this.roleRepository.findOneBy({ moodleRoleId: 5 })) ??
@@ -945,6 +941,68 @@ export class CourseService {
     updated.paidAt = new Date();
 
     return this.enrollmentRepository.save(updated);
+  }
+
+  async updateEnrollmentPayment(
+    courseId: number,
+    enrollmentId: number,
+    dto: UpdateEnrollmentPaymentDto,
+  ): Promise<CourseEnrollment> {
+    await this.findOne(courseId);
+    const enrollment = await this.enrollmentRepository.findOne({
+      where: {
+        id: enrollmentId,
+        course: { id: courseId },
+      },
+    });
+
+    if (!enrollment) {
+      throw new NotFoundException(`Enrollment with id ${enrollmentId} not found.`);
+    }
+
+    if (dto.paymentStatus === 'paid') {
+      if (!enrollment.paymentMethod) {
+        enrollment.paymentMethod = 'cash_in_person';
+      }
+
+      enrollment.status = 'active';
+      enrollment.amountDue = enrollment.amountDue ?? enrollment.course.price ?? null;
+      enrollment.paymentTerm = enrollment.paymentTerm ?? 'cash';
+      enrollment.installments = enrollment.installments ?? 1;
+      enrollment.paidAt = new Date();
+
+      return this.enrollmentRepository.save(enrollment);
+    }
+
+    if (dto.paymentStatus === 'pending_payment') {
+      if (enrollment.course.pricingType !== 'paid') {
+        throw new BadRequestException(
+          'Cursos gratuitos nao podem ficar com pagamento pendente.',
+        );
+      }
+
+      enrollment.status = 'pending_payment';
+      enrollment.paymentMethod = enrollment.paymentMethod ?? 'cash_in_person';
+      enrollment.paymentTerm = enrollment.paymentTerm ?? 'cash';
+      enrollment.installments = enrollment.installments ?? 1;
+      enrollment.amountDue = enrollment.amountDue ?? enrollment.course.price;
+      enrollment.paidAt = null;
+
+      return this.enrollmentRepository.save(enrollment);
+    }
+
+    enrollment.status = 'active';
+    enrollment.paymentMethod = null;
+    enrollment.paymentTerm = null;
+    enrollment.installments = null;
+    enrollment.amountDue = null;
+    enrollment.paidAt = null;
+    enrollment.pixTxid = null;
+    enrollment.pixCopyPaste = null;
+    enrollment.pixExpiresAt = null;
+    enrollment.pixCallbackPayload = null;
+
+    return this.enrollmentRepository.save(enrollment);
   }
 
   async confirmPixPayment(dto: PixCallbackDto): Promise<CourseEnrollment> {

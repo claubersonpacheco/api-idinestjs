@@ -32,6 +32,9 @@ export class User {
   @Column({ name: 'moodle_user_id', type: 'int', nullable: true })
   moodleUserId: number | null;
 
+  @Column({ name: 'photo_url', type: 'varchar', length: 512, nullable: true })
+  photoUrl: string | null;
+
   @ManyToOne(() => Role, (role) => role.users, {
     nullable: true,
     eager: true,

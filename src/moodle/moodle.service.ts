@@ -40,6 +40,12 @@ type MoodleUser = {
   email: string;
 };
 
+type MoodleUploadResponseFile = {
+  itemid?: number;
+  fileurl?: string;
+  filename?: string;
+};
+
 type MoodleLoginUrlResponse = {
   loginurl: string;
 };
@@ -307,6 +313,86 @@ export class MoodleService {
     }
 
     await this.callMoodle<unknown>('core_user_update_users', params);
+  }
+
+  async updateUserPicture(payload: {
+    userId: number;
+    file: {
+      buffer: Buffer;
+      mimetype: string;
+      originalname: string;
+    };
+  }): Promise<void> {
+    const config = await this.getMoodleConfig();
+    const draftItemId = 0;
+    const fileName = this.sanitizeFileName(payload.file.originalname);
+    const formData = new FormData();
+    const uploadBody = new ArrayBuffer(payload.file.buffer.byteLength);
+    new Uint8Array(uploadBody).set(payload.file.buffer);
+    const fileBlob = new Blob([uploadBody], {
+      type: payload.file.mimetype,
+    });
+
+    formData.set('token', config.token);
+    formData.set('contextlevel', 'user');
+    formData.set('instanceid', String(payload.userId));
+    formData.set('component', 'user');
+    formData.set('filearea', 'draft');
+    formData.set('itemid', String(draftItemId));
+    formData.set('filepath', '/');
+    formData.set('file_1', fileBlob, fileName);
+
+    const uploadResponse = await fetch(`${config.baseUrl}/webservice/upload.php`, {
+      method: 'POST',
+      body: formData,
+    });
+    const rawBody = await uploadResponse.text();
+    const uploadedPayload =
+      this.parseMoodleResponse<MoodleUploadResponseFile[]>(rawBody);
+
+    if (!uploadResponse.ok) {
+      throw new BadRequestException(
+        `Moodle upload failed: ${rawBody || uploadResponse.statusText}`,
+      );
+    }
+
+    if (
+      uploadedPayload &&
+      typeof uploadedPayload === 'object' &&
+      'exception' in uploadedPayload &&
+      uploadedPayload.exception
+    ) {
+      throw new BadRequestException(
+        this.formatMoodleError('webservice/upload.php', uploadedPayload),
+      );
+    }
+
+    const uploaded = Array.isArray(uploadedPayload) ? uploadedPayload[0] : null;
+
+    if (!uploaded?.itemid) {
+      throw new BadRequestException(
+        `Moodle upload did not return a draft item id. ${rawBody}`,
+      );
+    }
+
+    const pictureParams = new URLSearchParams();
+    pictureParams.set('draftitemid', String(uploaded.itemid));
+    pictureParams.set('delete', '0');
+    pictureParams.set('userid', String(payload.userId));
+
+    await this.callMoodle<unknown>('core_user_update_picture', pictureParams);
+  }
+
+  private sanitizeFileName(value: string): string {
+    const fallback = `profile-${Date.now()}.jpg`;
+    const sanitized = value
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9._-]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .toLowerCase();
+
+    return sanitized || fallback;
   }
 
   async findUserByField(

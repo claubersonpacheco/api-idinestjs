@@ -8,8 +8,11 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  UploadedFile,
+  UseInterceptors,
   UseGuards,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../auth/decorators/require-permissions.decorator';
@@ -18,6 +21,13 @@ import type { AuthenticatedUser } from '../auth/types/authenticated-user.type';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UserResponse, UserService } from './user.service';
+
+type UploadedImageFile = {
+  buffer: Buffer;
+  mimetype: string;
+  originalname: string;
+  size: number;
+};
 
 @Controller('users')
 @UseGuards(JwtAuthGuard, PermissionsGuard)
@@ -83,6 +93,20 @@ export class UserController {
     }
 
     return this.userService.update(id, updateUserDto);
+  }
+
+  @Post(':id/photo')
+  @UseInterceptors(FileInterceptor('photo'))
+  uploadPhoto(
+    @Param('id', ParseIntPipe) id: number,
+    @UploadedFile() file: UploadedImageFile,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<UserResponse> {
+    if (!this.hasPermission(user, 'users.update') && user.sub !== id) {
+      throw new ForbiddenException('User does not have permission.');
+    }
+
+    return this.userService.uploadPhoto(id, file);
   }
 
   @Delete(':id')

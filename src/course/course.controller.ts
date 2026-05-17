@@ -21,6 +21,7 @@ import { Course } from './course.entity';
 import { CourseService } from './course.service';
 import { CreateCourseDto } from './dto/create-course.dto';
 import { EnrollUserDto } from './dto/enroll-user.dto';
+import { UpdateEnrollmentPaymentDto } from './dto/update-enrollment-payment.dto';
 import { UpdateCourseDto } from './dto/update-course.dto';
 
 type UploadedImageFile = {
@@ -107,6 +108,16 @@ export class CourseController {
     @Param('enrollmentId', ParseIntPipe) enrollmentId: number,
   ) {
     return this.courseService.approveEnrollmentPayment(id, enrollmentId);
+  }
+
+  @Patch(':id/enrollments/:enrollmentId/payment')
+  @RequirePermissions('courses.update')
+  updateEnrollmentPayment(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('enrollmentId', ParseIntPipe) enrollmentId: number,
+    @Body() dto: UpdateEnrollmentPaymentDto,
+  ) {
+    return this.courseService.updateEnrollmentPayment(id, enrollmentId, dto);
   }
 
   @Patch(':id')
