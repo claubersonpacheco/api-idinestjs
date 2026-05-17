@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Post, UseGuards } from '@nestjs/common';
 import { CreateUserDto } from '../user/dto/create-user.dto';
 import type { UserResponse } from '../user/user.service';
 import { AuthService } from './auth.service';
@@ -69,6 +69,14 @@ export class AuthController {
   @Post('payments/pix/callback')
   confirmPixPayment(@Body() dto: PixCallbackDto) {
     return this.authService.confirmPixPayment(dto);
+  }
+
+  @Post('payments/asaas/webhook')
+  handleAsaasWebhook(
+    @Body() dto: unknown,
+    @Headers('asaas-access-token') accessToken?: string,
+  ) {
+    return this.authService.handleAsaasWebhook(dto, accessToken);
   }
 
   @Get('me')

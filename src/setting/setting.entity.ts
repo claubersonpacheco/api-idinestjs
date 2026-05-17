@@ -74,6 +74,15 @@ export class Setting {
   @Column({ type: 'varchar', length: 255, nullable: true })
   pixCallbackSecret: string | null;
 
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  asaasApiKey: string | null;
+
+  @Column({ type: 'varchar', length: 512, nullable: true })
+  asaasBaseUrl: string | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  asaasWebhookToken: string | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

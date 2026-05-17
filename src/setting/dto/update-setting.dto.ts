@@ -105,4 +105,19 @@ export class UpdateSettingDto {
   @IsString()
   @Length(1, 255)
   pixCallbackSecret?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 255)
+  asaasApiKey?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 512)
+  asaasBaseUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 255)
+  asaasWebhookToken?: string;
 }

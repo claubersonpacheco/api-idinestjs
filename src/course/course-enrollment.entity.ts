@@ -60,6 +60,24 @@ export class CourseEnrollment {
   @Column({ name: 'pix_callback_payload', type: 'jsonb', nullable: true })
   pixCallbackPayload: Record<string, unknown> | null;
 
+  @Column({ name: 'asaas_customer_id', type: 'varchar', length: 64, nullable: true })
+  asaasCustomerId: string | null;
+
+  @Column({ name: 'asaas_payment_id', type: 'varchar', length: 64, nullable: true })
+  asaasPaymentId: string | null;
+
+  @Column({ name: 'asaas_invoice_url', type: 'varchar', length: 512, nullable: true })
+  asaasInvoiceUrl: string | null;
+
+  @Column({ name: 'asaas_bank_slip_url', type: 'varchar', length: 512, nullable: true })
+  asaasBankSlipUrl: string | null;
+
+  @Column({ name: 'asaas_payment_status', type: 'varchar', length: 40, nullable: true })
+  asaasPaymentStatus: string | null;
+
+  @Column({ name: 'asaas_webhook_payload', type: 'jsonb', nullable: true })
+  asaasWebhookPayload: Record<string, unknown> | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

@@ -39,6 +39,22 @@ type PixConfig = {
   callbackSecret: string | null;
 };
 
+type AsaasConfig = {
+  apiKey: string;
+  baseUrl: string;
+  webhookToken: string | null;
+};
+
+type AsaasPaymentWebhook = {
+  event?: string;
+  payment?: {
+    id?: string;
+    status?: string;
+    value?: number;
+    billingType?: string;
+  };
+};
+
 @Injectable()
 export class CourseService {
   constructor(
@@ -440,10 +456,123 @@ export class CourseService {
     };
   }
 
+  private async getAsaasConfig(): Promise<AsaasConfig | null> {
+    const [setting] = await this.settingRepository.find({
+      order: { id: 'DESC' },
+      take: 1,
+    });
+
+    const apiKey = setting?.asaasApiKey?.trim();
+
+    if (!apiKey) {
+      return null;
+    }
+
+    return {
+      apiKey,
+      baseUrl: (setting?.asaasBaseUrl?.trim() || 'https://api-sandbox.asaas.com/v3').replace(/\/+$/, ''),
+      webhookToken: setting?.asaasWebhookToken?.trim() || null,
+    };
+  }
+
+  private mapAsaasBillingType(
+    paymentMethod: NonNullable<CourseEnrollment['paymentMethod']>,
+  ): 'PIX' | 'BOLETO' | 'CREDIT_CARD' | null {
+    if (paymentMethod === 'pix') return 'PIX';
+    if (paymentMethod === 'boleto') return 'BOLETO';
+    if (paymentMethod === 'card') return 'CREDIT_CARD';
+    return null;
+  }
+
+  private async asaasRequest<T>(
+    config: AsaasConfig,
+    path: string,
+    body: Record<string, unknown>,
+  ): Promise<T> {
+    const response = await fetch(`${config.baseUrl}${path}`, {
+      method: 'POST',
+      headers: {
+        access_token: config.apiKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+
+    const payload = (await response.json().catch(() => null)) as
+      | ({ errors?: Array<{ description?: string }> } & T)
+      | null;
+
+    if (!response.ok) {
+      const message =
+        payload?.errors?.map((error) => error.description).filter(Boolean).join(', ') ||
+        response.statusText;
+      throw new BadRequestException(`Asaas: ${message}`);
+    }
+
+    return payload as T;
+  }
+
+  private async createAsaasCharge(
+    enrollment: CourseEnrollment,
+  ): Promise<CourseEnrollment> {
+    const billingType = enrollment.paymentMethod
+      ? this.mapAsaasBillingType(enrollment.paymentMethod)
+      : null;
+
+    if (!billingType || enrollment.asaasPaymentId) {
+      return enrollment;
+    }
+
+    const config = await this.getAsaasConfig();
+
+    if (!config) {
+      return enrollment;
+    }
+
+    const customer = await this.asaasRequest<{ id: string }>(config, '/customers', {
+      name: `${enrollment.user.name} ${enrollment.user.lastname || ''}`.trim(),
+      email: enrollment.user.email,
+      externalReference: `user-${enrollment.user.id}`,
+    });
+
+    const dueDate = new Date();
+    dueDate.setDate(dueDate.getDate() + 3);
+
+    const paymentBody: Record<string, unknown> = {
+      customer: customer.id,
+      billingType,
+      value: Number(enrollment.amountDue ?? 0),
+      dueDate: dueDate.toISOString().slice(0, 10),
+      description: enrollment.course.fullname,
+      externalReference: `enrollment-${enrollment.id}`,
+    };
+
+    if ((enrollment.installments ?? 1) > 1) {
+      paymentBody.installmentCount = enrollment.installments;
+      paymentBody.totalValue = Number(enrollment.amountDue ?? 0);
+      delete paymentBody.value;
+    }
+
+    const payment = await this.asaasRequest<{
+      id: string;
+      status?: string;
+      invoiceUrl?: string;
+      bankSlipUrl?: string;
+    }>(config, '/payments', paymentBody);
+
+    enrollment.asaasCustomerId = customer.id;
+    enrollment.asaasPaymentId = payment.id;
+    enrollment.asaasInvoiceUrl = payment.invoiceUrl || null;
+    enrollment.asaasBankSlipUrl = payment.bankSlipUrl || null;
+    enrollment.asaasPaymentStatus = payment.status || null;
+
+    return this.enrollmentRepository.save(enrollment);
+  }
+
   private async preparePixCharge(
     enrollment: CourseEnrollment,
   ): Promise<CourseEnrollment> {
-    if (enrollment.paymentMethod !== 'pix' || enrollment.status !== 'pending_payment') {
+    if (enrollment.paymentMethod !== 'pix' || enrollment.status !== 'pending_payment' || enrollment.asaasPaymentId) {
       return enrollment;
     }
 
@@ -782,6 +911,12 @@ export class CourseService {
     enrollment.pixCopyPaste = null;
     enrollment.pixExpiresAt = null;
     enrollment.pixCallbackPayload = null;
+    enrollment.asaasCustomerId = null;
+    enrollment.asaasPaymentId = null;
+    enrollment.asaasInvoiceUrl = null;
+    enrollment.asaasBankSlipUrl = null;
+    enrollment.asaasPaymentStatus = null;
+    enrollment.asaasWebhookPayload = null;
 
     return this.enrollmentRepository.save(enrollment);
   }
@@ -855,9 +990,16 @@ export class CourseService {
       enrollment.pixExpiresAt =
         paymentChoice.paymentMethod === 'pix' ? enrollment.pixExpiresAt : null;
       enrollment.pixCallbackPayload = null;
+      enrollment.asaasCustomerId = null;
+      enrollment.asaasPaymentId = null;
+      enrollment.asaasInvoiceUrl = null;
+      enrollment.asaasBankSlipUrl = null;
+      enrollment.asaasPaymentStatus = null;
+      enrollment.asaasWebhookPayload = null;
 
       const saved = await this.enrollmentRepository.save(enrollment);
-      return this.preparePixCharge(saved);
+      const asaasEnrollment = await this.createAsaasCharge(saved);
+      return this.preparePixCharge(asaasEnrollment);
     }
 
     return this.enrollUser(course.id, {
@@ -939,6 +1081,12 @@ export class CourseService {
     updated.installments = enrollment.installments;
     updated.amountDue = enrollment.amountDue;
     updated.paidAt = new Date();
+    updated.asaasCustomerId = enrollment.asaasCustomerId;
+    updated.asaasPaymentId = enrollment.asaasPaymentId;
+    updated.asaasInvoiceUrl = enrollment.asaasInvoiceUrl;
+    updated.asaasBankSlipUrl = enrollment.asaasBankSlipUrl;
+    updated.asaasPaymentStatus = enrollment.asaasPaymentStatus;
+    updated.asaasWebhookPayload = enrollment.asaasWebhookPayload;
 
     return this.enrollmentRepository.save(updated);
   }
@@ -1041,6 +1189,52 @@ export class CourseService {
 
     if (dto.amount !== undefined && Number(dto.amount) < Number(enrollment.amountDue ?? 0)) {
       throw new BadRequestException('Valor PIX recebido menor que o valor do curso.');
+    }
+
+    return this.approveEnrollmentPayment(enrollment.course.id, enrollment.id);
+  }
+
+  async handleAsaasWebhook(
+    dto: AsaasPaymentWebhook,
+    accessToken?: string,
+  ): Promise<CourseEnrollment | { message: string }> {
+    const config = await this.getAsaasConfig();
+
+    if (config?.webhookToken && accessToken !== config.webhookToken) {
+      throw new BadRequestException('Webhook Asaas invalido.');
+    }
+
+    const paymentId = dto.payment?.id;
+
+    if (!paymentId) {
+      return { message: 'Webhook Asaas ignorado sem payment id.' };
+    }
+
+    const enrollment = await this.enrollmentRepository.findOne({
+      where: {
+        asaasPaymentId: paymentId,
+      },
+    });
+
+    if (!enrollment) {
+      throw new NotFoundException(`Asaas payment ${paymentId} not found.`);
+    }
+
+    enrollment.asaasPaymentStatus = dto.payment?.status || dto.event || null;
+    enrollment.asaasWebhookPayload = dto as unknown as Record<string, unknown>;
+    await this.enrollmentRepository.save(enrollment);
+
+    const paidEvents = new Set(['PAYMENT_CONFIRMED', 'PAYMENT_RECEIVED']);
+
+    if (!dto.event || !paidEvents.has(dto.event)) {
+      return enrollment;
+    }
+
+    if (
+      dto.payment?.value !== undefined &&
+      Number(dto.payment.value) < Number(enrollment.amountDue ?? 0)
+    ) {
+      throw new BadRequestException('Valor Asaas recebido menor que o valor do curso.');
     }
 
     return this.approveEnrollmentPayment(enrollment.course.id, enrollment.id);

@@ -183,6 +183,10 @@ export class AuthService {
     return this.courseService.confirmPixPayment(dto);
   }
 
+  handleAsaasWebhook(dto: unknown, accessToken?: string) {
+    return this.courseService.handleAsaasWebhook(dto as Parameters<CourseService['handleAsaasWebhook']>[0], accessToken);
+  }
+
   private async validateUser(
     identifier: string,
     password: string,
